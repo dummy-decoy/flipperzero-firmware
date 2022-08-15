@@ -11,6 +11,7 @@ typedef enum {
     GoofyTokenStateString,
     GoofyTokenStateKeys,
     GoofyTokenStateExpression,
+    GoofyTokenStateEol,
 } GoofyTokenState;
 
 struct GoofyToken {
@@ -179,76 +180,94 @@ void goofy_token_jmp(GoofyToken* token, goofy_pos_t pos) {
 GoofyTokenSymbol goofy_token_next(GoofyToken* token, string_t content) {
     // end of file, no more token to read
     if(goofy_token_end(token)) return GoofyTokenSymbolEof;
+    // we should have found an eol after the previous token
+    if(token->state == GoofyTokenStateEol) return GoofyTokenSymbolError;
 
     if(token->state == GoofyTokenStateCommand) {
         GoofyTokenSymbol symbol;
 
+        // ignore leading spaces
         goofy_token_skip_spaces(token);
-        string_reset(content);
-        while(isalnum((uint8_t)goofy_token_current(token))) {
-            string_push_back(content, goofy_token_current(token));
+        // skip blank lines
+        while(goofy_token_current(token) == '\n') {
+            goofy_token_advance(token);
+            goofy_token_skip_spaces(token);
         }
 
-        if(string_cmp_str(content, "REM") == 0) {
-            token->state = GoofyTokenStateString;
-            symbol = GoofyTokenSymbolCmdRem;
-        } else if(string_cmp_str(content, "STRING") == 0) {
-            token->state = GoofyTokenStateString;
-            symbol = GoofyTokenSymbolCmdString;
-        } else if(string_cmp_str(content, "STRINGLN") == 0) {
-            token->state = GoofyTokenStateString;
-            symbol = GoofyTokenSymbolCmdStringLn;
-        } else if(string_cmp_str(content, "DELAY") == 0) {
-            token->state = GoofyTokenStateExpression;
-            symbol = GoofyTokenSymbolCmdDelay;
-        } else if(string_cmp_str(content, "VAR") == 0) {
-            token->state = GoofyTokenStateExpression;
-            symbol = GoofyTokenSymbolCmdVar;
-        } else if(string_cmp_str(content, "HOLD") == 0) {
-            token->state = GoofyTokenStateKeys;
-            symbol = GoofyTokenSymbolCmdHold;
-        } else if(string_cmp_str(content, "RELEASE") == 0) {
-            token->state = GoofyTokenStateKeys;
-            symbol = GoofyTokenSymbolCmdRelease;
-        } else if(string_cmp_str(content, "IF") == 0) {
-            token->state = GoofyTokenStateExpression;
-            symbol = GoofyTokenSymbolCmdIf;
-        } else if(string_cmp_str(content, "END_IF") == 0) {
-            token->state = GoofyTokenStateCommand;
-            symbol = GoofyTokenSymbolCmdEndIf;
-        } else if(string_cmp_str(content, "ELSE") == 0) {
-            token->state = GoofyTokenStateCommand;
-            symbol = GoofyTokenSymbolCmdElse;
-        } else if(string_cmp_str(content, "ELSE_IF") == 0) { // should be 'else if'
-            token->state = GoofyTokenStateCommand;
-            symbol = GoofyTokenSymbolCmdElseIf;
-        } else if(string_cmp_str(content, "WHILE") == 0) {
-            token->state = GoofyTokenStateExpression;
-            symbol = GoofyTokenSymbolCmdWhile;
-        } else if(string_cmp_str(content, "END_WHILE") == 0) {
-            token->state = GoofyTokenStateCommand;
-            symbol = GoofyTokenSymbolCmdEndWhile;
-        } else if(string_cmp_str(content, "FUNCTION") == 0) {
-            token->state = GoofyTokenStateExpression;
-            symbol = GoofyTokenSymbolCmdFunction;
-        } else if(string_cmp_str(content, "END_FUNCTION") == 0) {
-            token->state = GoofyTokenStateCommand;
-            symbol = GoofyTokenSymbolCmdEndFunction;
-        } else if(string_cmp_str(content, "RETURN") == 0) {
-            token->state = GoofyTokenStateExpression; // fuck it... return always with a value.
-            symbol = GoofyTokenSymbolCmdReturn;
+        string_reset(content);
+        if(goofy_token_current(token) == '#') {
+            // comment
+            goofy_token_advance(token);
+            while(goofy_token_current(token) != '\n') {
+                string_push_back(content, goofy_token_current(token));
+                goofy_token_advance(token);
+            }
+            token->state = GoofyTokenStateEol;
+            symbol = GoofyTokenSymbolCmdComment;
         } else {
-            GoofyTokenKey key = goofy_token_key(content);
-            if(key != GoofyTokenKeyNone) {
+            while(isalnum((uint8_t)goofy_token_current(token))) {
+                string_push_back(content, goofy_token_current(token));
+                goofy_token_advance(token);
+            }
+
+            if(string_cmp_str(content, "STRING") == 0) {
+                token->state = GoofyTokenStateString;
+                symbol = GoofyTokenSymbolCmdString;
+            } else if(string_cmp_str(content, "STRINGLN") == 0) {
+                token->state = GoofyTokenStateString;
+                symbol = GoofyTokenSymbolCmdStringLn;
+            } else if(string_cmp_str(content, "DELAY") == 0) {
+                token->state = GoofyTokenStateExpression;
+                symbol = GoofyTokenSymbolCmdDelay;
+            } else if(string_cmp_str(content, "VAR") == 0) {
+                token->state = GoofyTokenStateExpression;
+                symbol = GoofyTokenSymbolCmdVar;
+            } else if(string_cmp_str(content, "HOLD") == 0) {
                 token->state = GoofyTokenStateKeys;
-                symbol = GoofyTokenSymbolCmdKey & (key << 16);
+                symbol = GoofyTokenSymbolCmdHold;
+            } else if(string_cmp_str(content, "RELEASE") == 0) {
+                token->state = GoofyTokenStateKeys;
+                symbol = GoofyTokenSymbolCmdRelease;
+            } else if(string_cmp_str(content, "IF") == 0) {
+                token->state = GoofyTokenStateExpression;
+                symbol = GoofyTokenSymbolCmdIf;
+            } else if(string_cmp_str(content, "END_IF") == 0) {
+                token->state = GoofyTokenStateEol;
+                symbol = GoofyTokenSymbolCmdEndIf;
+            } else if(string_cmp_str(content, "ELSE") == 0) {
+                token->state = GoofyTokenStateEol;
+                symbol = GoofyTokenSymbolCmdElse;
+            } else if(string_cmp_str(content, "ELSE_IF") == 0) {
+                token->state = GoofyTokenStateExpression;
+                symbol = GoofyTokenSymbolCmdElseIf;
+            } else if(string_cmp_str(content, "WHILE") == 0) {
+                token->state = GoofyTokenStateExpression;
+                symbol = GoofyTokenSymbolCmdWhile;
+            } else if(string_cmp_str(content, "END_WHILE") == 0) {
+                token->state = GoofyTokenStateEol;
+                symbol = GoofyTokenSymbolCmdEndWhile;
+            } else if(string_cmp_str(content, "FUNCTION") == 0) {
+                token->state = GoofyTokenStateExpression;
+                symbol = GoofyTokenSymbolCmdFunction;
+            } else if(string_cmp_str(content, "END_FUNCTION") == 0) {
+                token->state = GoofyTokenStateEol;
+                symbol = GoofyTokenSymbolCmdEndFunction;
+            } else if(string_cmp_str(content, "RETURN") == 0) {
+                token->state = GoofyTokenStateExpression; // fuck it... return always with a value.
+                symbol = GoofyTokenSymbolCmdReturn;
             } else {
-                symbol = GoofyTokenSymbolError;
+                GoofyTokenKey key = goofy_token_key(content);
+                if(key != GoofyTokenKeyNone) {
+                    token->state = GoofyTokenStateKeys;
+                    symbol = GoofyTokenSymbolCmdKey & (key << 16);
+                } else {
+                    symbol = GoofyTokenSymbolError;
+                }
             }
         }
 
         goofy_token_skip_spaces(token);
-        if(goofy_token_current(token) == '\n') {
+        if((token->state == GoofyTokenStateEol) && (goofy_token_current(token) == '\n')) {
             goofy_token_advance(token);
             token->line_cnt++;
             token->state = GoofyTokenStateCommand;
@@ -294,16 +313,14 @@ GoofyTokenSymbol goofy_token_next(GoofyToken* token, string_t content) {
         GoofyTokenSymbol symbol;
 
         if(isalpha((uint8_t)goofy_token_current(token))) {
+            // function name or true/false
             string_push_back(content, goofy_token_current(token));
             goofy_token_advance(token);
             while(!goofy_token_end(token) && isalpha((uint8_t)goofy_token_current(token))) {
                 string_push_back(content, goofy_token_current(token));
                 goofy_token_advance(token);
             }
-            if(string_cmp_str(content, "THEN") == 0) {
-                token->state = GoofyTokenStateCommand;
-                symbol = GoofyTokenSymbolThen;
-            } else if(string_cmp_str(content, "TRUE") == 0) {
+            if(string_cmp_str(content, "TRUE") == 0) {
                 symbol = GoofyTokenSymbolTrue;
             } else if(string_cmp_str(content, "FALSE") == 0) {
                 symbol = GoofyTokenSymbolFalse;
@@ -311,6 +328,7 @@ GoofyTokenSymbol goofy_token_next(GoofyToken* token, string_t content) {
                 symbol = GoofyTokenSymbolName;
             }
         } else if(goofy_token_current(token) == '$') {
+            // variable name
             goofy_token_advance(token);
             while(!goofy_token_end(token) && (isalnum((uint8_t)goofy_token_current(token)) ||
                                               (goofy_token_current(token) == '_'))) {
@@ -319,6 +337,7 @@ GoofyTokenSymbol goofy_token_next(GoofyToken* token, string_t content) {
             }
             symbol = GoofyTokenSymbolName;
         } else if(isdigit((uint8_t)goofy_token_current(token))) {
+            // number
             string_push_back(content, goofy_token_current(token));
             while(!goofy_token_end(token) && isdigit((uint8_t)goofy_token_current(token))) {
                 string_push_back(content, goofy_token_current(token));

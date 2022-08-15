@@ -13,7 +13,7 @@ typedef enum {
     GoofyTokenSymbolEof,
     GoofyTokenSymbolBullshit,
     // commands
-    GoofyTokenSymbolCmdRem,
+    GoofyTokenSymbolCmdComment,
     GoofyTokenSymbolCmdString,
     GoofyTokenSymbolCmdStringLn,
     GoofyTokenSymbolCmdKey,
